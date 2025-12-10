@@ -40,7 +40,13 @@ The project employs a variety of machine learning techniques to provide a holist
 
 ## 🚀 Live Demo & Visuals
 
-![demo video](streamlit-streamlit_app-2025-12-11-00-11-38.webm)
+<video controls width="600">
+    <source src="streamlit-streamlit_app-2025-12-11-00-11-38.webm" type="video/webm">
+    
+    <!-- Fallback for browsers that do not support the video tag or webm format -->
+    Your browser does not support the video tag.
+</video>
+
 
 [App Demo](https://social-media-addiction-vs-relationships.streamlit.app/)
 
