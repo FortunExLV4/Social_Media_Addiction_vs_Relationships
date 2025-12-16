@@ -33,8 +33,8 @@ print("=" * 60)
 # ============================================================
 print("\n[1/10] Loading data and models...")
 
-df = pd.read_csv("archive/Students Social Media Addiction.csv")
-df = df.drop(columns=['Student_ID'])
+df = pd.read_csv("Students_Social_Media_Addiction_v2.csv")
+#df = df.drop(columns=['Student_ID'])
 
 # Load models
 dt_model = joblib.load('models/decision_tree_model.pkl')

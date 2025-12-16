@@ -63,14 +63,22 @@ def create_engineered_features(input_data):
     
     # Sleep Deficit (hours below 8)
     data['Sleep_Deficit'] = max(0, 8 - data['Sleep_Hours_Per_Night'])
-    
-    # Usage-Sleep Ratio
-    data['Usage_Sleep_Ratio'] = data['Avg_Daily_Usage_Hours'] / (data['Sleep_Hours_Per_Night'] + 0.1)
-    
-    # Relationship Strain Index
-    relationship_weights = {'Single': 1.0, 'In Relationship': 1.5, 'Complicated': 2.0}
-    weight = relationship_weights.get(data['Relationship_Status'], 1.0)
-    data['Relationship_Strain'] = data['Conflicts_Over_Social_Media'] * weight
+
+    # Digital Life Percentage (% of awake time on social media)
+    awake_time = 24 - data['Sleep_Hours_Per_Night']
+    data['Digital_Life_Percentage'] = data['Avg_Daily_Usage_Hours'] / awake_time
+
+    # Escapism Ratio (usage relative to mental health)
+    data['Escapism_Ratio'] = data['Avg_Daily_Usage_Hours'] / (data['Mental_Health_Score'] + 1)
+    # Toxic Usage Score (usage amplified by conflicts)
+    data['Toxic_Usage_Score'] = data['Avg_Daily_Usage_Hours'] * (data['Conflicts_Over_Social_Media'] + 1)
+    # Young Visual User (binary flag)
+    is_young = data['Age'] < 21
+    visual_platforms = ['TikTok', 'Instagram']
+    is_visual = data['Most_Used_Platform'] in visual_platforms
+    data['Young_Visual_User'] = 1 if (is_young and is_visual) else 0
+    # Vampire Index (high usage + low sleep)
+    data['Vampire_Index'] = 1 if (data['Avg_Daily_Usage_Hours'] > 6 and data['Sleep_Hours_Per_Night'] < 5) else 0
     
     # Addiction Risk Score (simplified version)
     # Normalize components to 0-1 range (using typical ranges)
@@ -93,20 +101,20 @@ def prepare_label_encoded_input(input_data, label_encoders):
     """Prepare input for Decision Tree (label encoded)."""
     
     feature_cols = [
-        'Age', 'Gender', 'Academic_Level', 'Country',
-        'Avg_Daily_Usage_Hours', 'Most_Used_Platform',
-        'Sleep_Hours_Per_Night', 'Mental_Health_Score',
-        'Relationship_Status', 'Conflicts_Over_Social_Media',
-        'Region', 'Sleep_Deficit', 'Usage_Sleep_Ratio',
-        'Relationship_Strain', 'Addiction_Risk_Score'
+        'Age', 'Gender', 'Academic_Level', 'Country', 'Avg_Daily_Usage_Hours',
+        'Most_Used_Platform', 'Sleep_Hours_Per_Night', 'Mental_Health_Score',
+        'Relationship_Status', 'Conflicts_Over_Social_Media', 'Region',
+        'Sleep_Deficit', 'Digital_Life_Percentage', 'Escapism_Ratio',
+        'Toxic_Usage_Score', 'Young_Visual_User', 'Vampire_Index'
     ]
     
     # Create DataFrame
     df_input = pd.DataFrame([{col: input_data.get(col, 0) for col in feature_cols}])
     
     # Apply label encoding to categorical columns
-    categorical_cols = ['Gender', 'Academic_Level', 'Country', 
-                        'Most_Used_Platform', 'Relationship_Status', 'Region']
+    categorical_cols = ['Gender', 'Academic_Level', 'Country',
+                    'Most_Used_Platform', 'Relationship_Status', 'Region', 'Young_Visual_User',
+    'Vampire_Index']
     
     for col in categorical_cols:
         if col in label_encoders and col in df_input.columns:
@@ -130,9 +138,11 @@ def prepare_onehot_encoded_input(input_data, feature_info, scaler):
     
     # Numeric columns
     numeric_cols = ['Age', 'Avg_Daily_Usage_Hours', 'Sleep_Hours_Per_Night',
-                    'Mental_Health_Score', 'Conflicts_Over_Social_Media',
-                    'Sleep_Deficit', 'Usage_Sleep_Ratio', 'Relationship_Strain',
-                    'Addiction_Risk_Score']
+                'Mental_Health_Score', 'Conflicts_Over_Social_Media', 'Addicted_Score',
+                'Sleep_Deficit',
+    'Digital_Life_Percentage',
+    'Escapism_Ratio',
+    'Toxic_Usage_Score']
     
     # Fill numeric columns
     for col in numeric_cols:
@@ -180,9 +190,11 @@ def prepare_regression_input(input_data, feature_info, scaler):
     df_input = pd.DataFrame(0, index=[0], columns=expected_cols)
     
     numeric_cols = ['Age', 'Avg_Daily_Usage_Hours', 'Sleep_Hours_Per_Night',
-                    'Mental_Health_Score', 'Conflicts_Over_Social_Media',
-                    'Sleep_Deficit', 'Usage_Sleep_Ratio', 'Relationship_Strain',
-                    'Addiction_Risk_Score']
+                'Mental_Health_Score', 'Conflicts_Over_Social_Media', 'Addicted_Score',
+                'Sleep_Deficit',
+    'Digital_Life_Percentage',
+    'Escapism_Ratio',
+    'Toxic_Usage_Score']
     
     # Fill numeric columns
     for col in numeric_cols:
@@ -317,6 +329,80 @@ def create_probability_chart(probabilities):
     return fig
 
 
+def create_radar_chart(input_data):
+    """Create a 'Bigger is Better' Radar Chart."""
+
+    # --- 1. PREPARE DATA (Normalize to 0-10 Scale) ---
+
+    # SLEEP: Already 0-10ish. Target is 8.
+    # We cap it at 10 so it doesn't break the chart
+    sleep_score = min(input_data['Sleep_Hours_Per_Night'], 10)
+
+    # MENTAL HEALTH: Already 1-10. (10 is best)
+    mental_score = input_data['Mental_Health_Score']
+
+    # USAGE: Lower is better. Invert it!
+    # If usage is 0, score is 10. If usage is 10+, score is 0.
+    usage_score = max(0, 10 - input_data['Avg_Daily_Usage_Hours'])
+
+    # CONFLICTS: Lower is better. Invert it!
+    # If conflicts is 1 (low), score is 9. If 10, score is 0.
+    conflict_score = max(0, 10 - input_data['Conflicts_Over_Social_Media'])
+
+    # --- 2. DEFINE VALUES ---
+    categories = ['Sleep Quality', 'Mental Wellbeing', 'Usage Control', 'Social Harmony']
+
+    # User Values (The Red Shape)
+    user_values = [sleep_score, mental_score, usage_score, conflict_score]
+    # Close the polygon by repeating the first value
+    user_values += [user_values[0]]
+    categories += [categories[0]]
+
+    # Healthy Benchmark (The Green Shape - Ideally 8/10 on everything)
+    benchmark_values = [8, 8, 8, 8, 8]  # A nice balanced diamond
+
+    # --- 3. PLOT ---
+    fig = go.Figure()
+
+    # Add Benchmark (Green Zone)
+    fig.add_trace(go.Scatterpolar(
+        r=benchmark_values,
+        theta=categories,
+        fill='toself',
+        name='Healthy Target',
+        line_color='rgba(46, 204, 113, 0.5)',  # Green
+        fillcolor='rgba(46, 204, 113, 0.2)'
+    ))
+
+    # Add User (Red Line)
+    fig.add_trace(go.Scatterpolar(
+        r=user_values,
+        theta=categories,
+        fill='toself',
+        name='You',
+        line_color='#e74c3c'  # Red
+    ))
+
+    # --- 4. FORMATTING ---
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 10],  # Fixed scale 0-10
+                tickfont=dict(size=10),
+                gridcolor='gray'
+            ),
+            angularaxis=dict(
+                tickfont=dict(size=14, color='white')
+            )
+        ),
+        showlegend=True,
+        title="Your Digital Health Balance (Outer is Better)",
+        margin=dict(l=40, r=40, t=40, b=40),
+        height=400
+    )
+
+    return fig
 # ============================================================
 # MAIN APPLICATION
 # ============================================================
@@ -552,24 +638,43 @@ def main():
         
         # ==================== DISPLAY RESULTS ====================
         st.header("🎯 Prediction Results")
-        
+        st.plotly_chart(create_radar_chart(input_data), use_container_width=True)
         col1, col2, col3 = st.columns(3)
         
         # Column 1: Academic Impact
         with col1:
-            st.subheader("📚 Academic Impact")
-            
+            # To this:
+            st.subheader("⚠️ Addiction Risk Level")
             if ensemble_pred == 1:
-                st.error("⚠️ **YES** - Social media likely affects your academics")
+                st.error("🔴 **HIGH RISK** - Your usage patterns suggest high addiction risk (Score ≥ 7)")
             else:
-                st.success("✅ **NO** - Social media unlikely to affect your academics")
-            
+                st.success("🟢 **LOW RISK** - Your usage patterns suggest lower addiction risk")
             st.metric(
                 label="Risk Probability",
                 value=f"{avg_prob * 100:.1f}%",
                 delta=None
             )
-            
+            # 1. Add a "What's driving this prediction?" section after results
+            st.subheader("🔍 Key Risk Factors")
+            risk_factors = []
+            if input_data['Avg_Daily_Usage_Hours'] > 6:
+                risk_factors.append(f"⚠️ High daily usage ({input_data['Avg_Daily_Usage_Hours']:.1f} hrs)")
+            if input_data['Sleep_Hours_Per_Night'] < 6:
+                risk_factors.append(f"😴 Low sleep ({input_data['Sleep_Hours_Per_Night']:.1f} hrs)")
+            if input_data['Escapism_Ratio'] > 1:
+                risk_factors.append(f"🏃 High escapism ratio ({input_data['Escapism_Ratio']:.2f})")
+            if input_data['Vampire_Index'] == 1:
+                risk_factors.append("🧛 Vampire pattern detected (high usage + low sleep)")
+
+            if risk_factors:
+                for rf in risk_factors:
+                    st.write(rf)
+            else:
+                st.write("✅ No major risk factors detected")
+
+            # 2. Show how user compares to average (add after the gauge chart)
+            st.caption(f"Dataset average: 4.8 hrs usage, 6.3 hrs sleep, 5.2 addiction score")
+
             # Model breakdown
             with st.expander("📊 Model Breakdown"):
                 for name, prob in probabilities.items():
@@ -615,7 +720,7 @@ def main():
             
             desc = cluster_descriptions.get(cluster, "User profile identified based on your responses.")
             st.markdown(desc)
-        
+
         # ==================== PROBABILITY CHART ====================
         st.markdown("---")
         
@@ -649,70 +754,141 @@ def main():
             }
             
             st.table(pd.DataFrame(summary_data))
-        
+
         # ==================== RECOMMENDATIONS ====================
         st.markdown("---")
         st.header("💡 Personalized Recommendations")
-        
+
         recommendations = []
-        
-        if input_data['Avg_Daily_Usage_Hours'] > 5:
+
+        # --- 1. Vampire Index Check (High Usage + Low Sleep) ---
+        if input_data.get('Vampire_Index', 0) == 1:
             recommendations.append({
-                "icon": "🕐",
-                "title": "Reduce Screen Time",
-                "text": "Consider reducing daily social media usage to under 5 hours. Try setting app timers or designated 'phone-free' periods."
+                "icon": "🧛",
+                "title": "Vampire Mode Detected",
+                "text": "You are sacrificing sleep for screen time. This is a critical pattern. Set a strict 'Digital Curfew' 1 hour before bed.",
+                "type": "error"  # Critical
             })
-        
-        if input_data['Sleep_Hours_Per_Night'] < 7:
+
+        # --- 2. Escapism Check (Usage vs. Mental Health) ---
+        # High usage when feeling low suggests coping mechanism
+        if input_data.get('Escapism_Ratio', 0) > 0.8:
+            recommendations.append({
+                "icon": "🏃",
+                "title": "Escapism Alert",
+                "text": "Your usage is high relative to your mental wellbeing. You might be using social media to escape stress. Try offline stress-relief (walk, journal, talk to a friend).",
+                "type": "warning"
+            })
+
+        # --- 3. Digital Life Balance ---
+        # If more than 25% of awake time is spent on social media
+        if input_data.get('Digital_Life_Percentage', 0) > 0.25:
+            pct = input_data['Digital_Life_Percentage'] * 100
+            recommendations.append({
+                "icon": "⚖️",
+                "title": "Digital Life Imbalance",
+                "text": f"You spend {pct:.0f}% of your awake time on social media. Try the 20-20-20 rule or set app limits to reclaim your day.",
+                "type": "warning"
+            })
+
+        # --- 4. Toxic Usage (Usage + Conflicts) ---
+        if input_data.get('Toxic_Usage_Score', 0) > 10:  # Example threshold based on your data logic
+            recommendations.append({
+                "icon": "☢️",
+                "title": "Toxic Pattern Alert",
+                "text": "Your usage is causing real-life conflicts. It's time for a 'Detox Weekend' to repair relationships and reset your habits.",
+                "type": "error"
+            })
+
+        # --- 5. Young Visual User (TikTok/Insta + Under 21) ---
+        if input_data.get('Young_Visual_User', 0) == 1:
+            recommendations.append({
+                "icon": "👁️",
+                "title": "Visual Platform Caution",
+                "text": "Visual platforms like Instagram/TikTok are designed to be highly addictive for your age group. Be mindful of the 'infinite scroll' trap.",
+                "type": "info"
+            })
+
+        # --- 6. General Sleep Check ---
+        if input_data['Sleep_Hours_Per_Night'] < 7 and input_data.get('Vampire_Index', 0) == 0:
             recommendations.append({
                 "icon": "😴",
-                "title": "Improve Sleep",
-                "text": "Aim for 7-8 hours of sleep. Avoid screens 1 hour before bed and establish a consistent sleep schedule."
+                "title": "Sleep Priority",
+                "text": "Your sleep is below recommended levels (7-9 hours). Sleep deprivation increases anxiety and addiction susceptibility.",
+                "type": "info"
             })
-        
-        if input_data['Mental_Health_Score'] < 5:
+        # 6. SLEEP DEFICIT
+        if input_data['Sleep_Deficit'] > 2:
+            deficit = input_data['Sleep_Deficit']
+            recommendations.append({
+                "icon": "😴",
+                "title": "Significant Sleep Debt",
+                "text": f"You're missing ~{deficit:.1f} hours of sleep per night. Sleep deprivation worsens mental health and increases social media dependence. Aim for 7-8 hours.",
+                "priority": "critical" if deficit > 3 else "warning"
+            })
+        elif input_data['Sleep_Deficit'] > 0.5:
+            recommendations.append({
+                "icon": "🛏️",
+                "title": "Improve Sleep Habits",
+                "text": "You're slightly below the recommended 8 hours. Try setting a consistent bedtime and avoiding screens 1 hour before sleep.",
+                "priority": "info"
+            })
+        # 7. ADDICTION RISK SCORE (Composite)
+        if input_data['Addiction_Risk_Score'] > 0.6:
+            score_pct = input_data['Addiction_Risk_Score'] * 100
+            recommendations.append({
+                "icon": "📊",
+                "title": "Elevated Overall Risk",
+                "text": f"Your composite risk score is {score_pct:.0f}%. Consider tracking your screen time for a week and setting daily limits using built-in phone tools.",
+                "priority": "critical" if input_data['Addiction_Risk_Score'] > 0.75 else "warning"
+            })
+
+        # 8. HIGH PREDICTED ADDICTION (Model output)
+        if predicted_addiction >= 7:
+            recommendations.append({
+                "icon": "🔴",
+                "title": "High Addiction Score",
+                "text": f"Your predicted addiction score is {predicted_addiction:.1f}/10. This suggests significant dependency. Consider speaking with a counselor or trying a structured digital detox program.",
+                "priority": "critical"
+            })
+
+        # 9. MENTAL HEALTH (Base feature - still important)
+        if input_data['Mental_Health_Score'] <= 4:
             recommendations.append({
                 "icon": "🧠",
                 "title": "Mental Health Support",
-                "text": "Consider speaking with a counselor or mental health professional. Many schools offer free counseling services."
+                "text": "Your mental health score is low. Social media can worsen anxiety and depression. Please consider reaching out to a mental health professional or counselor.",
+                "priority": "critical"
             })
-        
-        if input_data['Conflicts_Over_Social_Media'] > 5:
-            recommendations.append({
-                "icon": "💬",
-                "title": "Communication",
-                "text": "Work on setting healthy boundaries around social media use with friends and family."
-            })
-        
-        if predicted_addiction > 6:
-            recommendations.append({
-                "icon": "📵",
-                "title": "Digital Detox",
-                "text": "Consider taking regular breaks from social media. Try a 24-hour detox on weekends."
-            })
-        
-        if input_data['Usage_Sleep_Ratio'] > 1:
-            recommendations.append({
-                "icon": "⚖️",
-                "title": "Balance Usage and Rest",
-                "text": "You're spending more time on social media than sleeping. Try to reverse this ratio for better health."
-            })
-        
+        # --- 7. Positive Reinforcement (If doing well) ---
         if not recommendations:
             recommendations.append({
-                "icon": "✨",
-                "title": "Keep It Up!",
-                "text": "You're doing great! Keep maintaining your healthy social media habits."
+                "icon": "🌟",
+                "title": "Great Habits!",
+                "text": "Your profile shows a healthy balance between digital life and wellbeing. Keep it up!",
+                "type": "success"
             })
-        
-        # Display recommendations in columns
+
+        # Display recommendations
         cols = st.columns(min(len(recommendations), 3))
         for i, rec in enumerate(recommendations):
             with cols[i % 3]:
+                # Choose border color based on type
+                border_color = "#ff4b4b" if rec.get('type') == 'error' else "#ffa421" if rec.get(
+                    'type') == 'warning' else "#21c354"
+
                 st.markdown(f"""
-                <div style="padding: 15px; border-radius: 10px; border: 1px solid #ddd; margin: 5px 0;">
-                    <h4>{rec['icon']} {rec['title']}</h4>
-                    <p>{rec['text']}</p>
+                <div style="
+                    padding: 15px; 
+                    border-radius: 10px; 
+                    border-left: 5px solid {border_color}; 
+                    background-color: #f8f9fa;
+                    box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+                    margin-bottom: 10px;
+                    height: 100%;
+                ">
+                    <h4 style="margin-top:0; color: #333;">{rec['icon']} {rec['title']}</h4>
+                    <p style="font-size: 14px; color: #555;">{rec['text']}</p>
                 </div>
                 """, unsafe_allow_html=True)
         
